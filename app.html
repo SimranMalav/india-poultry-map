@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>India Poultry Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body,
+    html {
+      margin: 0;
+      padding: 0;
+    }
+
+    #map {
+      width: 100%;
+      height: 100vh;
+    }
+    .map-controls {
+      position: absolute;
+      z-index: 1000;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.95);
+      padding: 12px 16px;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px #0002;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .map-controls button {
+      font-size: 1rem;
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #f0f0f0;
+      color: #222;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 1px 3px #0001;
+    }
+    .map-controls button:hover {
+      background: #e0e7ff;
+      color: #1e40af;
+    }
+    .map-controls button.active {
+      background: #1e40af;
+      color: #fff;
+    }
+    .legend {
+      position: absolute;
+      z-index: 1001;
+      right: 24px;
+      bottom: 24px;
+      background: rgba(255,255,255,0.95);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px #0002;
+      padding: 12px 18px;
+      font-size: 1rem;
+      line-height: 1.7;
+      min-width: 180px;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .legend-icon {
+      width: 22px;
+      height: 34px;
+      display: inline-block;
+      vertical-align: middle;
+      background-size: contain;
+      background-repeat: no-repeat;
+    }
+    .legend-icon.existing {
+      background-image: url('https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png');
+    }
+    .legend-icon.prospect {
+      background-image: url('https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png');
+    }
+    .legend-icon.jfl {
+      margin-top: 10px;
+      height: 30px;
+      width: 30px;
+      background-image: url('jfl-logo.png');
+    }
+    /* Permanent state label tooltips */
+    .leaflet-tooltip.permanent.state-label {
+      background: rgba(255,255,255,0.0);
+      border: none;
+      box-shadow: none;
+      font-weight: bold;
+      color: #222;
+      text-align: center;
+      font-size: 1.05em;
+      text-shadow: 0 1px 4px #fff, 0 0 2px #0008;
+      pointer-events: none;
+      padding: 2px 6px;
+      line-height: 1.2;
+    }
+    /* Sidebar for poultry company details */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      right: -420px;
+      width: 400px;
+      height: 100vh;
+      background: #fff;
+      box-shadow: -2px 0 16px #0002;
+      z-index: 2000;
+      transition: right 0.3s cubic-bezier(.4,0,.2,1);
+      overflow-y: auto;
+      padding: 0;
+      font-size: 1rem;
+      border-left: 1px solid #e5e7eb;
+    }
+    .sidebar.open {
+      right: 0;
+    }
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 24px 10px 24px;
+      border-bottom: 1px solid #eee;
+      background: #f8fafc;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .sidebar-close {
+      background: none;
+      border: none;
+      font-size: 1.5em;
+      cursor: pointer;
+      color: #888;
+      margin-left: 10px;
+    }
+    .sidebar-content {
+      padding: 18px 24px;
+    }
+    .sidebar-content table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.98em;
+    }
+    .sidebar-content th, .sidebar-content td {
+      text-align: left;
+      padding: 6px 4px;
+      border-bottom: 1px solid #f1f1f1;
+      vertical-align: top;
+    }
+    .sidebar-content th {
+      color: #666;
+      font-weight: 600;
+      width: 38%;
+    }
+    .sidebar-content tr:last-child td {
+      border-bottom: none;
+    }
+    @media (max-width: 600px) {
+      .sidebar { width: 100vw; right: -100vw; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="map-controls">
+    <button id="viewMaize">View Maize</button>
+    <button id="viewSoya">View Soya</button>
+    <button id="toggleExistingSuppliers">Show Existing Suppliers</button>
+    <button id="toggleProspectSuppliers">Show Prospect Suppliers</button>
+  </div>
+  <div class="legend">
+    <div class="legend-row"><span class="legend-icon existing"></span> Existing Supplier</div>
+    <div class="legend-row"><span class="legend-icon prospect"></span> Prospect Supplier</div>
+    <div class="legend-row"><span class="legend-icon jfl"></span> JFL Supply Chain Centre</div>
+    <div style="margin-top:8px;font-size:0.95em;color:#555;">Hover over a state for details</div>
+  </div>
+  <div id="map"></div>
+  <div id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <span id="sidebar-title">Company Details</span>
+      <button class="sidebar-close" onclick="closeSidebar()">&times;</button>
+    </div>
+    <div class="sidebar-content" id="sidebar-content">
+      <!-- Company data will be injected here -->
+    </div>
+  </div>
+
+  <!-- Load Leaflet library -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Your custom script -->
+  <script>
+    // simple global error logger
+    window.onerror = (msg, url, line) => {
+      alert(`JS error: ${msg} at ${url}:${line}`);
+      console.error(msg);
+    };
+
+    // your data
+    // Use the exact state names from the 'NAME_1' property in india_state.json for the keys below
+    const maizeProduction = {
+      'Andaman and Nicobar': 100,
+      'Andhra Pradesh': 2000,
+      'Arunachal Pradesh': 100,
+      Assam: 500,
+      Bihar: 5000,
+      Chhattisgarh: 1200,
+      Goa: 50,
+      Gujarat: 3000,
+      Haryana: 800,
+      'Himachal Pradesh': 200,
+      Jharkhand: 700,
+      Karnataka: 9000,
+      Kerala: 100,
+      'Madhya Pradesh': 7000,
+      Maharashtra: 6500,
+      Manipur: 80,
+      Meghalaya: 90,
+      Mizoram: 60,
+      Nagaland: 70,
+      Odisha: 1100,
+      Punjab: 600,
+      Rajasthan: 1500,
+      Sikkim: 30,
+      'Tamil Nadu': 1000,
+      Telangana: 1800,
+      Tripura: 40,
+      'Uttar Pradesh': 4000,
+      Uttarakhand: 300,
+      'West Bengal': 900
+      // Add union territories as needed
+    };
+    const soyaProduction = {
+      'Andaman and Nicobar': 10,
+      'Andhra Pradesh': 300,
+      'Arunachal Pradesh': 10,
+      Assam: 20,
+      Bihar: 100,
+      Chhattisgarh: 200,
+      Goa: 5,
+      Gujarat: 800,
+      Haryana: 100,
+      'Himachal Pradesh': 10,
+      Jharkhand: 30,
+      Karnataka: 1200,
+      Kerala: 5,
+      'Madhya Pradesh': 2500,
+      Maharashtra: 1800,
+      Manipur: 8,
+      Meghalaya: 9,
+      Mizoram: 6,
+      Nagaland: 7,
+      Odisha: 100,
+      Punjab: 50,
+      Rajasthan: 2000,
+      Sikkim: 3,
+      'Tamil Nadu': 150,
+      Telangana: 300,
+      Tripura: 4,
+      'Uttar Pradesh': 900,
+      Uttarakhand: 20,
+      'West Bengal': 40
+      // Add union territories as needed
+    };
+    const existingSuppliers = [
+      { name: 'Sneha Farms', location: [17.4587912, 78.3730556], info: 'Hyderabad, Telangana' },
+      { name: 'Shanthi Feeds', location: [11.004556, 76.961632], info: 'Coimbatore, Tamil Nadu' },
+      { name: 'Suguna Foods', location: [11.004556, 76.961632], info: 'Coimbatore, Tamil Nadu' },
+      { name: 'Venketeshwar (Venkys)', location: [18.488333, 73.828889], info: 'Pune, Maharashtra' },
+      { name: 'Perfect Poultry', location: [31.63398, 74.872261], info: 'Amritsar, Punjab' },
+      { name: 'Swami Feeds', location: [10.79426, 77.7115], info: 'Mulanur, Tirupur, Tamil Nadu' }
+
+
+
+
+      // Add more suppliers as needed
+    ];
+
+
+    const prospectSuppliers = [
+    { name: 'SKM Feeds', location: [11.23306, 77.77806], info: 'Modakurichi, Tamil Nadu' },
+{ name: 'Lifeline Feeds', location: [13.31300, 75.73700], info: 'Chikmagalur, Karnataka' },
+{ name: 'Venkateshwara (VH)', location: [18.52028, 73.85667], info: 'Pune, Maharashtra' },
+{ name: 'Godrej Tyson', location: [19.07611, 72.87750], info: 'Mumbai, Maharashtra' },
+{ name: 'Baramati Agro', location: [18.52028, 73.85667], info: 'Pune, Maharashtra' },
+{ name: 'Coastal Farms', location: [12.87167, 74.84250], info: 'Mangalore, Karnataka' },
+      { name: 'ProTAC Foods', location: [13.16670, 78.40000], info: 'Mulbagal, Karnataka' },
+      { name: 'Sivasakthi Agro', location: [11.10850, 77.34110], info: 'Tiruppur, Tamil Nadu' },
+      { name: 'Kwality Animal Feeds', location: [15.85000, 74.50000], info: 'Belgaum, Karnataka' },
+      { name: 'AOV Agro Foods', location: [28.57000, 77.32000], info: 'Noida, Uttar Pradesh' },
+      { name: 'Al Golden', location: [30.58720, 76.84280], info: 'Dera Bassi, Punjab' },
+      { name: 'Hitech Hatch', location: [22.56750, 88.37000], info: 'Kolkata, West Bengal' },
+      { name: 'Provit Foods', location: [12.09350, 75.20249], info: 'Payyannur, Kerala' },
+        { name: 'AV Ventures', location: [30.69520, 76.85417], info: 'Panchkula, Haryana' },
+      { name: 'CP India', location: [12.97889, 77.59167], info: 'Bengaluru, Karnataka' },
+      { name: 'Shalimar Corp', location: [22.56750, 88.37000], info: 'Kolkata, West Bengal' },
+    ];
+
+    const jflSupplyChainCentres = [
+      // JFL: Supply Chain Centre for Jubilant FoodWorks
+      { name: 'Bangalore SCC, JFL', location: [12.97889, 77.59167], info: 'Bangalore, Karnataka' },
+      { name: 'GNSC, Gurugram', location: [28.456, 77.029], info: 'Gurugram, Haryana' }
+
+    ];
+
+    // Poultry company details (expanded from CSV)
+    const poultryDetails = {
+      'Sneha Farms': {
+        'Company': 'Sneha Farms',
+        'HQ Location': 'Kondapur, Hyderabad',
+        'Plant location': 'Addakal, Mahabubnagar, Telangana',
+        'Capacity (BPH)': '12,000',
+        'Integrators': 'Yes',
+        'Contract': 'Yes; collaborates with over 5,000 contract farmers across Telangana, Andhra Pradesh, and Karnataka. Farmers are provided with chicks, feed, vaccinations, and veterinary support. They are paid a base rate of ₹6 per kg of bird weight, with additional incentives for efficient farm management and low feed conversion ratios.',
+        'Poultry Farms': '',
+        'Automation level': 'High; employs advanced automation technologies in processing and hatchery operations. Fully automated slaughterhouse Cold storage & processing units in Telangana',
+        'Line Manufacturer': 'Marel/Meyn equipment',
+        'Client Portfolio': 'Retail chains, QSRs, Export distributors, Supplies to Jubilant FoodWorks Limited (JFL)',
+        'Proximity to high-demand zones': 'High; the processing plant in Addakal, Mahabubnagar, is approximately 150 km from Hyderabad, a major urban center with significant demand for poultry products.',
+        'USPs': 'Fully vertically integrated, Own feed mills & hatcheries, Animal health division',
+        'Remarks': 'Significant investment from Mitsui & Co. to enhance operations and expand into FMCG segments. Committed to sustainable and antibiotic-free poultry farming practices',
+        'FEED': 'In-house production using Buhler equipment; also imports feed supplements like L-Arginine from CJ CheilJedang.',
+        'Turn Over': '',
+        'Breed': '',
+        'Sources': ''
+      },
+      'Shanthi Feeds': {
+        'Company': 'Shanthi Feeds',
+        'HQ Location': 'Coimbatore, Tamil Nadu',
+        'Plant location': 'Athimarathuvalasu, Palani Taluk, Dindigul District, Tamil Nadu',
+        'Capacity (BPH)': '12,000',
+        'Integrators': 'Yes',
+        'Contract': 'Yes; collaborates with over 2,000 commercial broiler farms across Tamil Nadu and Kerala.',
+        'Poultry Farms': '',
+        'Automation level': "Highly Automated; features India's first automatic 12,000 BPH poultry processing line with advanced automation from arrival to cut-up and deboning. World's largest Meyn installation.",
+        'Line Manufacturer': 'Meyn; Intralox provided conveyance solutions.',
+        'Client Portfolio': 'Not publicly disclosed. (KFC India, Star Hotels, Big Basket (Retail))',
+        'Proximity to high-demand zones': 'High; the processing plant is located in Dindigul District, approximately 100 km from Coimbatore and 120 km from Madurai, both major urban centers with significant demand for poultry products.',
+        'USPs': 'Fully integrated operations encompassing breeding, hatcheries, feed mills, broiler farming, processing, and distribution. Pioneered integrated poultry operations in India. High automation level with state-of-the-art processing facilities. Emphasis on biosecurity and hygiene standards.',
+        'Remarks': "Recognized for introducing India's first automatic 12,000 BPH poultry processing line. Strong presence in Tamil Nadu and Kerala markets. Suguna Synergy: Leverages Suguna's pan-India network (e.g., supplies KFC in North via Suguna's Punjab plant).",
+        'FEED': 'In-house production; operates eight feed mill units with a combined capacity of 40,000 metric tons per month, producing scientifically formulated feed for both poultry and cattle.',
+        'Turn Over': '',
+        'Breed': '',
+        'Sources': ''
+      },
+      'Suguna Foods': {
+        'Company': 'Suguna Foods',
+        'HQ Location': 'Coimbatore, Tamil Nadu',
+        'Plant location': 'Vayalur-TN',
+        'Capacity (BPH)': '4000',
+        'Integrators': 'Yes',
+        'Contract': 'Yes; collaborates with 40,000+ farmers across 18 states​',
+        'Poultry Farms': '',
+        'Automation level': 'Medium-High',
+        'Line Manufacturer': 'Meyn, Marel',
+        'Client Portfolio': 'Not publicly disclosed',
+        'Proximity to high-demand zones': 'High; Plants near Coimbatore, Belgaum, and Chandigarh catering to urban demand centers',
+        'USPs': "Suguna's distribution network, 100% antibiotic-free program, Pioneer in contract farming; Fully integrated; Focus on value-added products", 
+        'Remarks': 'More into Feed production (1.8 million MT)',
+        'FEED': 'In-house feed production; operates 60+ feed mills across India​',
+        'Turn Over': '',
+        'Breed': '',
+        'Sources': ''
+      },
+      'SKM Feeds': {
+        'Company': 'SKM Feeds',
+        'HQ Location': 'Modakurichi, Tamil Nadu',
+        'Plant location': 'Dindigul, Tamil Nadu',
+        'Capacity (BPH)': '8000 BPH​',
+        'Integrators': 'Yes',
+        'Contract': 'Yes; precise number not disclosed',
+        'Poultry Farms': '',
+        'Automation level': 'ultramodern semi – automated process plant',
+        'Line Manufacturer': 'Meyn',
+        'Client Portfolio': 'Not disclosed',
+        'Proximity to high-demand zones': 'High; Near Coimbatore & Madurai',
+        'USPs': '1. SKM\'s integrated feed supply, 2. HALAL-certified exports, Fully integrated operations; consistent capacity expansions',
+        'Remarks': 'Formerly VKS Farms; expanded thrice since 2009​',
+        'FEED': 'In-house feed production',
+        'Turn Over': '',
+        'Breed': '',
+        'Sources': ''
+      },
+      'Lifeline Feeds': {
+        'Company': 'Lifeline Feeds',
+        'HQ Location': 'Chikmagalur, Karnataka',
+        'Plant location': 'Industrial Estate, Chikmagalur, Karnataka',
+        'Capacity (BPH)': '3500 BPH​',
+        'Integrators': 'Yes',
+        'Contract': 'Yes; Exact number not disclosed',
+        'Poultry Farms': '',
+        'Automation level': 'High',
+        'Line Manufacturer': 'Meyn',
+        'Client Portfolio': 'Own 40+ retail outlets​',
+        'Proximity to high-demand zones': 'High; serves Karnataka cities like Bangalore & Mangalore',
+        'USPs': 'Own retail network; consistent capacity upgrades',
+        'Remarks': 'Started with 300 BPH in 2002; expanded multiple times to reach 3500 BPH​ New Soya Extrusion Plant with a capacity of 100 tonnes per day.',
+        'FEED': 'In-house (details not publicly available)',
+        'Turn Over': '',
+        'Breed': '',
+        'Sources': ''
+      },
+      'Venkateshwara (VH)': {
+        'Company': 'Venkateshwara (VH)',
+        'HQ Location': 'Pune, Maharashtra',
+        'Plant location': 'Pune(Kamshet), Maharasthra',
+        'Capacity (BPH)': '3000',
+        'Integrators': 'Yes',
+        'Contract': 'Yes (exact number not disclosed)',
+        'Poultry Farms': '',
+        'Automation level': 'Medium-High',
+        'Line Manufacturer': 'Meyn/Marel',
+        'Client Portfolio': 'Not disclosed (KFC, McDonald\'s India, Domino\'s)',
+        'Proximity to high-demand zones': 'Supplies Mumbai (150km), Delhi (1,400km via hubs).',
+        'USPs': 'India\'s oldest processor (since 1986). HALAL & USDA certified. Strong RTE focus Antibiotic-free farming initiatives.',
+        'Remarks': 'Risk: Pune plant faced effluent fines (2022). Expansion: Planning 2,000 BPH line in Andhra. Focus shifted towards RTE products at both plants; continuous equipment upgrades\u200b',
+        'FEED': 'In-house feed production',
+        'Turn Over': '',
+        'Breed': '',
+        'Sources': ''
+      }
+    };
+
+    // start map
+    const map = L.map('map').setView([22, 79], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let currentView = 'maize';
+    let supplierMarkers = [];
+    let geoLayer = null;
+
+    // color scales
+    const getMaizeColor = d =>
+      d > 8000 ? '#00441b'
+        : d > 6000 ? '#238b45'
+          : d > 4000 ? '#41ab5d'
+            : d > 2000 ? '#78c679'
+              : d > 0 ? '#c2e699'
+                : '#e0e0e0'; // dull gray for missing/zero data
+    const getSoyaColor = d =>
+      d > 2000 ? '#54278f'
+        : d > 1500 ? '#756bb1'
+          : d > 1000 ? '#9e9ac8'
+            : d > 500 ? '#cbc9e2'
+              : d > 0 ? '#f2f0f7'
+                : '#e0e0e0'; // dull gray for missing/zero data
+    const getColor = (d, type) => type === 'maize' ? getMaizeColor(d) : getSoyaColor(d);
+
+    // Custom icons for markers
+    const existingIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+    const prospectIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+    const jflIcon = L.icon({
+      iconUrl: 'jfl-logo.png', // use local logo
+      iconSize: [36, 36],
+      iconAnchor: [18, 36],
+      popupAnchor: [0, -28],
+      className: 'jfl-marker-icon'
+    });
+
+    let existingSupplierMarkers = [];
+    let prospectSupplierMarkers = [];
+    let jflMarkers = [];
+
+    // fetch geojson locally
+    fetch('./india_state.json')
+      .then(res => {
+        if (!res.ok) throw new Error(res.statusText);
+        return res.json();
+      })
+      .then(geojson => {
+        geojson.features.forEach(f => {
+          const st = f.properties.NAME_1;
+          f.properties.stateName = st;
+          f.properties.maize = maizeProduction[st] || 0;
+          f.properties.soya = soyaProduction[st] || 0;
+        });
+
+        function styleFeature(f) {
+          return {
+            fillColor: getColor(f.properties[currentView], currentView),
+            weight: 1,
+            color: 'white',
+            dashArray: '3',
+            fillOpacity: 0.65
+          };
+        }
+
+        function onEachFeature(f, layer) {
+          layer.on('click', () => {
+            layer
+              .bindPopup(
+                `<b>${f.properties.stateName || 'Unknown State'}</b><br>` +
+                `Maize: ${f.properties.maize} (000 t)<br>` +
+                `Soya: ${f.properties.soya} (000 t)`
+              )
+              .openPopup();
+          });
+          // No permanent label
+          // Tooltip on hover with icons and numbers
+          layer.bindTooltip(
+            `<b>${f.properties.stateName || 'Unknown State'}</b><br>` +
+            `🌽 Maize: ${f.properties.maize}k &nbsp; 🫘 Soya: ${f.properties.soya}k`,
+            {sticky: true}
+          );
+        }
+
+        function renderMap() {
+          if (geoLayer) geoLayer.remove();
+          geoLayer = L.geoJson(geojson, {
+            style: styleFeature,
+            onEachFeature: onEachFeature
+          }).addTo(map);
+        }
+
+        // Supplier marker management
+        function showExistingSuppliers() {
+          if (existingSupplierMarkers.length) return;
+          existingSuppliers.forEach(s => {
+            const marker = L.marker(s.location, { icon: existingIcon })
+              .addTo(map)
+              .bindTooltip(s.name)
+              .on('click', () => showSidebar(s.name));
+            existingSupplierMarkers.push(marker);
+          });
+        }
+        function hideExistingSuppliers() {
+          existingSupplierMarkers.forEach(m => map.removeLayer(m));
+          existingSupplierMarkers = [];
+        }
+        function showProspectSuppliers() {
+          if (prospectSupplierMarkers.length) return;
+          prospectSuppliers.forEach(s => {
+            const marker = L.marker(s.location, { icon: prospectIcon })
+              .addTo(map)
+              .bindTooltip(s.name)
+              .on('click', () => showSidebar(s.name));
+            prospectSupplierMarkers.push(marker);
+          });
+        }
+        function hideProspectSuppliers() {
+          prospectSupplierMarkers.forEach(m => map.removeLayer(m));
+          prospectSupplierMarkers = [];
+        }
+        function showJflCentres() {
+          if (jflMarkers.length) return;
+          jflSupplyChainCentres.forEach(s => {
+            const marker = L.marker(s.location, { icon: jflIcon })
+              .addTo(map)
+              .bindTooltip(s.name)
+              .bindPopup(`<b>${s.name}</b><br>${s.info}`);
+            jflMarkers.push(marker);
+          });
+        }
+        // Always show JFL centres
+        showJflCentres();
+
+        // Button event listeners
+        document.getElementById('viewMaize').onclick = () => {
+          currentView = 'maize';
+          renderMap();
+          document.getElementById('viewMaize').classList.add('active');
+          document.getElementById('viewSoya').classList.remove('active');
+        };
+        document.getElementById('viewSoya').onclick = () => {
+          currentView = 'soya';
+          renderMap();
+          document.getElementById('viewSoya').classList.add('active');
+          document.getElementById('viewMaize').classList.remove('active');
+        };
+        let existingVisible = false;
+        let prospectVisible = false;
+        document.getElementById('toggleExistingSuppliers').onclick = function () {
+          existingVisible = !existingVisible;
+          if (existingVisible) {
+            showExistingSuppliers();
+            this.textContent = 'Hide Existing Suppliers';
+            this.classList.add('active');
+          } else {
+            hideExistingSuppliers();
+            this.textContent = 'Show Existing Suppliers';
+            this.classList.remove('active');
+          }
+        };
+        document.getElementById('toggleProspectSuppliers').onclick = function () {
+          prospectVisible = !prospectVisible;
+          if (prospectVisible) {
+            showProspectSuppliers();
+            this.textContent = 'Hide Prospect Suppliers';
+            this.classList.add('active');
+          } else {
+            hideProspectSuppliers();
+            this.textContent = 'Show Prospect Suppliers';
+            this.classList.remove('active');
+          }
+        };
+
+        // Initial render
+        renderMap();
+      })
+      .catch(err => {
+        alert('Failed to load GeoJSON: ' + err);
+        console.error(err);
+      });
+
+    // Sidebar logic
+    function showSidebar(companyName) {
+      const sidebar = document.getElementById('sidebar');
+      const content = document.getElementById('sidebar-content');
+      const title = document.getElementById('sidebar-title');
+      const data = poultryDetails[companyName];
+      if (!data) {
+        content.innerHTML = `<div style='color:#b91c1c;'>No detailed data available for <b>${companyName}</b>.</div>`;
+        title.textContent = companyName;
+      } else {
+        title.textContent = data['Company'] || companyName;
+        let html = '<table>';
+        for (const key in data) {
+          if (key !== 'Company' && data[key]) {
+            html += `<tr><th>${key}</th><td>${data[key]}</td></tr>`;
+          }
+        }
+        html += '</table>';
+        content.innerHTML = html;
+      }
+      sidebar.classList.add('open');
+    }
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.remove('open');
+    }
+  </script>
+</body>
+
+</html>
